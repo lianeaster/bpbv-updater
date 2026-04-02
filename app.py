@@ -45,6 +45,90 @@ class App(tk.Tk):
         self.status_var = tk_string(self, value="Готово.")
 
         self._build()
+        self._bind_clipboard()
+
+    def _bind_clipboard(self) -> None:
+        """Enable Ctrl+V / Ctrl+C / Ctrl+A / Ctrl+X on all platforms (fixes Windows Tkinter)."""
+        for seq, cmd in [
+            ("<Control-v>", self._paste),
+            ("<Control-V>", self._paste),
+            ("<Control-c>", self._copy),
+            ("<Control-C>", self._copy),
+            ("<Control-a>", self._select_all),
+            ("<Control-A>", self._select_all),
+            ("<Control-x>", self._cut),
+            ("<Control-X>", self._cut),
+        ]:
+            self.bind_all(seq, cmd)
+
+    def _paste(self, event: tk.Event) -> str | None:
+        w = event.widget
+        try:
+            text = self.clipboard_get()
+        except tk.TclError:
+            return None
+        if isinstance(w, (tk.Entry, ttk.Entry)):
+            if w.select_present():
+                w.delete("sel.first", "sel.last")
+            w.insert("insert", text)
+            return "break"
+        if isinstance(w, tk.Text):
+            try:
+                w.delete("sel.first", "sel.last")
+            except tk.TclError:
+                pass
+            w.insert("insert", text)
+            return "break"
+        return None
+
+    def _copy(self, event: tk.Event) -> str | None:
+        w = event.widget
+        try:
+            if isinstance(w, (tk.Entry, ttk.Entry)):
+                if w.select_present():
+                    self.clipboard_clear()
+                    self.clipboard_append(w.selection_get())
+                    return "break"
+            elif isinstance(w, tk.Text):
+                sel = w.get("sel.first", "sel.last")
+                if sel:
+                    self.clipboard_clear()
+                    self.clipboard_append(sel)
+                    return "break"
+        except tk.TclError:
+            pass
+        return None
+
+    def _cut(self, event: tk.Event) -> str | None:
+        w = event.widget
+        try:
+            if isinstance(w, (tk.Entry, ttk.Entry)):
+                if w.select_present():
+                    self.clipboard_clear()
+                    self.clipboard_append(w.selection_get())
+                    w.delete("sel.first", "sel.last")
+                    return "break"
+            elif isinstance(w, tk.Text):
+                sel = w.get("sel.first", "sel.last")
+                if sel:
+                    self.clipboard_clear()
+                    self.clipboard_append(sel)
+                    w.delete("sel.first", "sel.last")
+                    return "break"
+        except tk.TclError:
+            pass
+        return None
+
+    def _select_all(self, event: tk.Event) -> str | None:
+        w = event.widget
+        if isinstance(w, (tk.Entry, ttk.Entry)):
+            w.select_range(0, "end")
+            w.icursor("end")
+            return "break"
+        if isinstance(w, tk.Text):
+            w.tag_add("sel", "1.0", "end")
+            return "break"
+        return None
 
     def _build(self) -> None:
         pad = {"padx": 12, "pady": 6}
