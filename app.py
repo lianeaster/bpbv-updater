@@ -36,7 +36,11 @@ class App(tk.Tk):
         self.minsize(520, 640)
         self.geometry("620x720")
 
-        self.token_var = tk_string(self)
+        try:
+            from config import DEFAULT_TOKEN
+        except ImportError:
+            DEFAULT_TOKEN = ""
+        self.token_var = tk_string(self, value=DEFAULT_TOKEN)
         self.section_var = tk_string(self, value="news")
         self.day_var = tk_string(self, value=str(datetime.now().day))
         self.month_var = tk_string(self, value=str(datetime.now().month))
