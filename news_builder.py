@@ -12,29 +12,49 @@ def next_card_index(translations_js: str) -> int:
     return max(found) + 1 if found else 1
 
 
-def split_title_excerpt_detail(raw: str) -> tuple[str, str, str]:
+def split_title_excerpt_detail(raw: str, excerpt_lines: int = 3) -> tuple[str, str, str]:
     """
-    First non-empty line → title (display on card).
-    Remaining text → excerpt (card teaser) and detail (expandable); excerpt is shortened if needed.
-    Detail excludes the title line so the heading is not repeated in the body.
+    First non-empty line → title.
+    Next `excerpt_lines` non-empty lines → excerpt (visible teaser on card).
+    Everything after that → detail (hidden inside «Детальніше», no duplication).
     """
     text = raw.strip()
     if not text:
         return "", "", ""
+
     lines = text.splitlines()
-    first = ""
-    rest_lines: list[str] = []
-    started_rest = False
+
+    title = ""
+    body_lines: list[str] = []
+    found_title = False
     for line in lines:
-        if not started_rest:
+        if not found_title:
             if line.strip():
-                first = line.strip()
-                started_rest = True
+                title = line.strip()
+                found_title = True
             continue
-        rest_lines.append(line)
-    detail = "\n".join(rest_lines).strip()
-    excerpt = detail if detail else (first[:400] + ("…" if len(first) > 400 else ""))
-    return first, excerpt, detail
+        body_lines.append(line)
+
+    body = "\n".join(body_lines).strip()
+    if not body:
+        return title, "", ""
+
+    non_empty = [l for l in body_lines if l.strip()]
+    if len(non_empty) <= excerpt_lines:
+        return title, body, ""
+
+    taken = 0
+    cut_index = 0
+    for i, line in enumerate(body_lines):
+        if line.strip():
+            taken += 1
+        if taken == excerpt_lines:
+            cut_index = i + 1
+            break
+
+    excerpt = "\n".join(body_lines[:cut_index]).strip()
+    detail = "\n".join(body_lines[cut_index:]).strip()
+    return title, excerpt, detail
 
 
 def paragraphs_to_html(text: str) -> str:
@@ -95,16 +115,19 @@ def build_article_html(
             <img src="{safe_src}" alt="{safe_alt}" loading="lazy" />
           </div>"""
 
-    body_safe = body_html  # already built from escaped text + safe paths
+    details_block = ""
+    if body_html:
+        details_block = f"""
+            <details class="news-card__details" style="margin-top:auto;">
+              <summary class="news-card__link" data-i18n="news.readMore">Детальніше</summary>
+              <div class="news-card__full" style="margin-top:1rem;font-size:0.9rem;line-height:1.7;color:rgba(38,26,34,0.85);" data-i18n="{keys['body']}">{body_html}</div>
+            </details>"""
+
     article = f"""        <article class="news-card">{image_block}
           <div class="news-card__body">
             <div class="news-card__date" data-i18n="{keys['date']}">{html.escape(date_display)}</div>
             <h3 class="news-card__title" data-i18n="{keys['title']}">{html.escape(title)}</h3>
-            <p class="news-card__excerpt" data-i18n="{keys['excerpt']}">{html.escape(excerpt)}</p>
-            <details class="news-card__details" style="margin-top:auto;">
-              <summary class="news-card__link" data-i18n="news.readMore">Детальніше</summary>
-              <div class="news-card__full" style="margin-top:1rem;font-size:0.9rem;line-height:1.7;color:rgba(38,26,34,0.85);" data-i18n="{keys['body']}">{body_safe}</div>
-            </details>
+            <p class="news-card__excerpt" data-i18n="{keys['excerpt']}">{html.escape(excerpt)}</p>{details_block}
           </div>
         </article>
 """
