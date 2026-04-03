@@ -46,9 +46,10 @@ class App(tk.Tk):
 
         self._build()
         self._bind_clipboard()
+        self._bind_context_menu()
 
     def _bind_clipboard(self) -> None:
-        """Enable Ctrl+V / Ctrl+C / Ctrl+A / Ctrl+X on all platforms (fixes Windows Tkinter)."""
+        """Enable Ctrl+V / Ctrl+C / Ctrl+A / Ctrl+X on Windows (Tkinter ignores them by default)."""
         for seq, cmd in [
             ("<Control-v>", self._paste),
             ("<Control-V>", self._paste),
@@ -61,18 +62,43 @@ class App(tk.Tk):
         ]:
             self.bind_all(seq, cmd)
 
-    def _paste(self, event: tk.Event) -> str | None:
+    def _resolve_widget(self, event: tk.Event) -> tk.Widget | None:
+        """On Windows event.widget can be a string path instead of an object."""
         w = event.widget
+        if isinstance(w, str):
+            try:
+                w = self.nametowidget(w)
+            except (KeyError, ValueError):
+                return None
+        return w
+
+    def _widget_kind(self, w: tk.Widget) -> str:
+        """Return 'entry', 'text', or 'other'."""
+        cls = w.winfo_class()
+        if cls in ("Entry", "TEntry"):
+            return "entry"
+        if cls in ("Text", "TText"):
+            return "text"
+        return "other"
+
+    def _paste(self, event: tk.Event) -> str | None:
+        w = self._resolve_widget(event)
+        if w is None:
+            return None
         try:
             text = self.clipboard_get()
         except tk.TclError:
             return None
-        if isinstance(w, (tk.Entry, ttk.Entry)):
-            if w.select_present():
-                w.delete("sel.first", "sel.last")
+        kind = self._widget_kind(w)
+        if kind == "entry":
+            try:
+                if w.select_present():
+                    w.delete("sel.first", "sel.last")
+            except (tk.TclError, AttributeError):
+                pass
             w.insert("insert", text)
             return "break"
-        if isinstance(w, tk.Text):
+        if kind == "text":
             try:
                 w.delete("sel.first", "sel.last")
             except tk.TclError:
@@ -82,14 +108,17 @@ class App(tk.Tk):
         return None
 
     def _copy(self, event: tk.Event) -> str | None:
-        w = event.widget
+        w = self._resolve_widget(event)
+        if w is None:
+            return None
         try:
-            if isinstance(w, (tk.Entry, ttk.Entry)):
+            kind = self._widget_kind(w)
+            if kind == "entry":
                 if w.select_present():
                     self.clipboard_clear()
                     self.clipboard_append(w.selection_get())
                     return "break"
-            elif isinstance(w, tk.Text):
+            elif kind == "text":
                 sel = w.get("sel.first", "sel.last")
                 if sel:
                     self.clipboard_clear()
@@ -100,15 +129,18 @@ class App(tk.Tk):
         return None
 
     def _cut(self, event: tk.Event) -> str | None:
-        w = event.widget
+        w = self._resolve_widget(event)
+        if w is None:
+            return None
         try:
-            if isinstance(w, (tk.Entry, ttk.Entry)):
+            kind = self._widget_kind(w)
+            if kind == "entry":
                 if w.select_present():
                     self.clipboard_clear()
                     self.clipboard_append(w.selection_get())
                     w.delete("sel.first", "sel.last")
                     return "break"
-            elif isinstance(w, tk.Text):
+            elif kind == "text":
                 sel = w.get("sel.first", "sel.last")
                 if sel:
                     self.clipboard_clear()
@@ -120,15 +152,97 @@ class App(tk.Tk):
         return None
 
     def _select_all(self, event: tk.Event) -> str | None:
-        w = event.widget
-        if isinstance(w, (tk.Entry, ttk.Entry)):
+        w = self._resolve_widget(event)
+        if w is None:
+            return None
+        kind = self._widget_kind(w)
+        if kind == "entry":
             w.select_range(0, "end")
             w.icursor("end")
             return "break"
-        if isinstance(w, tk.Text):
+        if kind == "text":
             w.tag_add("sel", "1.0", "end")
             return "break"
         return None
+
+    def _bind_context_menu(self) -> None:
+        """Right-click context menu with Вставити/Копіювати/Вирізати for all input fields."""
+        menu = tk.Menu(self, tearoff=0)
+        self._ctx_menu = menu
+
+        def _show(event: tk.Event) -> None:
+            w = self._resolve_widget(event)
+            if w is None:
+                return
+            kind = self._widget_kind(w)
+            if kind not in ("entry", "text"):
+                return
+            menu.delete(0, "end")
+            menu.add_command(label="Вставити", command=lambda: self._ctx_paste(w, kind))
+            menu.add_command(label="Копіювати", command=lambda: self._ctx_copy(w, kind))
+            menu.add_command(label="Вирізати", command=lambda: self._ctx_cut(w, kind))
+            menu.add_separator()
+            menu.add_command(label="Виділити все", command=lambda: self._ctx_select_all(w, kind))
+            try:
+                menu.tk_popup(event.x_root, event.y_root)
+            finally:
+                menu.grab_release()
+
+        self.bind_all("<Button-3>", _show)
+
+    def _ctx_paste(self, w: tk.Widget, kind: str) -> None:
+        try:
+            text = self.clipboard_get()
+        except tk.TclError:
+            return
+        if kind == "entry":
+            try:
+                if w.select_present():
+                    w.delete("sel.first", "sel.last")
+            except (tk.TclError, AttributeError):
+                pass
+            w.insert("insert", text)
+        elif kind == "text":
+            try:
+                w.delete("sel.first", "sel.last")
+            except tk.TclError:
+                pass
+            w.insert("insert", text)
+
+    def _ctx_copy(self, w: tk.Widget, kind: str) -> None:
+        try:
+            if kind == "entry" and w.select_present():
+                self.clipboard_clear()
+                self.clipboard_append(w.selection_get())
+            elif kind == "text":
+                sel = w.get("sel.first", "sel.last")
+                if sel:
+                    self.clipboard_clear()
+                    self.clipboard_append(sel)
+        except tk.TclError:
+            pass
+
+    def _ctx_cut(self, w: tk.Widget, kind: str) -> None:
+        try:
+            if kind == "entry" and w.select_present():
+                self.clipboard_clear()
+                self.clipboard_append(w.selection_get())
+                w.delete("sel.first", "sel.last")
+            elif kind == "text":
+                sel = w.get("sel.first", "sel.last")
+                if sel:
+                    self.clipboard_clear()
+                    self.clipboard_append(sel)
+                    w.delete("sel.first", "sel.last")
+        except tk.TclError:
+            pass
+
+    def _ctx_select_all(self, w: tk.Widget, kind: str) -> None:
+        if kind == "entry":
+            w.select_range(0, "end")
+            w.icursor("end")
+        elif kind == "text":
+            w.tag_add("sel", "1.0", "end")
 
     def _build(self) -> None:
         pad = {"padx": 12, "pady": 6}
