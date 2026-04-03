@@ -30,13 +30,6 @@ jobs:
         with:
           python-version: "3.13"
 
-      - name: Inject token into config
-        if: env.BPBV_TOKEN != ''
-        env:
-          BPBV_TOKEN: ${{ secrets.BPBV_TOKEN }}
-        run: |
-          echo "DEFAULT_TOKEN = \"$BPBV_TOKEN\"" > config.py
-
       - name: Install dependencies
         run: |
           pip install -r requirements.txt pyinstaller
@@ -44,16 +37,13 @@ jobs:
       - name: Build with PyInstaller (Windows)
         if: runner.os == 'Windows'
         run: |
-          if (Test-Path config.py) { $extra = "--hidden-import=config --add-data=config.py;." } else { $extra = "" }
-          pyinstaller --onefile --windowed --name bpbv-updater -y $extra app.py
+          pyinstaller --onefile --windowed --name bpbv-updater -y app.py
 
       - name: Build with PyInstaller (macOS)
         if: runner.os == 'macOS'
         run: |
           pip install pyinstaller
-          EXTRA=""
-          if [ -f config.py ]; then EXTRA="--hidden-import=config --add-data=config.py:."; fi
-          pyinstaller --onedir --windowed --name bpbv-updater -y $EXTRA app.py
+          pyinstaller --onedir --windowed --name bpbv-updater -y app.py
 
       - name: Zip macOS .app bundle
         if: runner.os == 'macOS'
