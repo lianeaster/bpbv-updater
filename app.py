@@ -488,14 +488,15 @@ class App(tk.Tk):
             self.after(0, lambda: messagebox.showerror("Помилка", tb))
 
     def _do_publish(self, token: str, date_display: str, raw_text: str) -> None:
-        index_html, index_sha = github_api.get_file_text(token, OWNER, REPO, "index.html", BRANCH)
-        translations_js, trans_sha = github_api.get_file_text(token, OWNER, REPO, "translations.js", BRANCH)
+        # Pre-read translations.js to determine next card index
+        translations_js_pre, _ = github_api.get_file_text(token, OWNER, REPO, "translations.js", BRANCH)
+        card_id = next_card_index(translations_js_pre)
 
-        card_id = next_card_index(translations_js)
         title, excerpt, detail_text = split_title_excerpt_detail(raw_text)
         if not title:
             raise ValueError("Не вдалося визначити заголовок (порожній текст).")
 
+        # 1. Upload images (each creates a commit)
         stamp = datetime.now(timezone.utc).strftime("%Y%m%d") + "-" + uuid.uuid4().hex[:6]
         rel_paths: list[str] = []
         for i, src in enumerate(self.image_paths):
@@ -503,14 +504,8 @@ class App(tk.Tk):
             repo_path = f"{IMAGE_PREFIX}/{fname}"
             blob = src.read_bytes()
             github_api.put_file_bytes(
-                token,
-                OWNER,
-                REPO,
-                repo_path,
-                BRANCH,
-                blob,
-                f"news: add image {fname}",
-                None,
+                token, OWNER, REPO, repo_path, BRANCH,
+                blob, f"news: add image {fname}", None,
             )
             rel_paths.append(repo_path.replace("\\", "/"))
 
@@ -521,35 +516,26 @@ class App(tk.Tk):
             body_images = rel_paths[1:]
         body_html = build_body_html(detail_text, body_images)
         article_html = build_article_html(card_id, date_display, title, excerpt, body_html, hero)
-
-        new_index = inject_article_into_index(index_html, article_html)
         block = translation_keys_block(card_id, date_display, title, excerpt, body_html)
-        new_trans = inject_translation_block(translations_js, block)
 
+        # 2. Read index.html with fresh SHA, modify, write immediately
+        index_html, index_sha = github_api.get_file_text(token, OWNER, REPO, "index.html", BRANCH)
+        new_index = inject_article_into_index(index_html, article_html)
         if new_index == index_html:
             raise ValueError("index.html не змінено — перевірте розмітку.")
+        github_api.put_file_text(
+            token, OWNER, REPO, "index.html", BRANCH,
+            new_index, f"news: add card {card_id} — {title[:60]}", index_sha,
+        )
+
+        # 3. Read translations.js with fresh SHA, modify, write immediately
+        translations_js, trans_sha = github_api.get_file_text(token, OWNER, REPO, "translations.js", BRANCH)
+        new_trans = inject_translation_block(translations_js, block)
         if new_trans == translations_js:
             raise ValueError("translations.js не змінено — перевірте файл.")
-
         github_api.put_file_text(
-            token,
-            OWNER,
-            REPO,
-            "index.html",
-            BRANCH,
-            new_index,
-            f"news: add card {card_id} — {title[:60]}",
-            index_sha,
-        )
-        github_api.put_file_text(
-            token,
-            OWNER,
-            REPO,
-            "translations.js",
-            BRANCH,
-            new_trans,
-            f"news: i18n for card {card_id}",
-            trans_sha,
+            token, OWNER, REPO, "translations.js", BRANCH,
+            new_trans, f"news: i18n for card {card_id}", trans_sha,
         )
 
 
