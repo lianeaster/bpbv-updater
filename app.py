@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import sys
 import threading
 import traceback
 import uuid
@@ -28,13 +29,26 @@ REPO = "bpbv"
 BRANCH = "main"
 IMAGE_PREFIX = "images/news"
 
+_BURGUNDY = "#5b1a3a"
+_BG_WINDOW = "#f8f6f8"
+
+
+def _font_tuple_platform() -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
+    """(body, small, title) font tuples for tk."""
+    if sys.platform == "darwin":
+        return ("Helvetica Neue", 12), ("Helvetica Neue", 10), ("Helvetica Neue", 18, "bold")
+    if sys.platform == "win32":
+        return ("Segoe UI", 10), ("Segoe UI", 9), ("Segoe UI", 16, "bold")
+    return ("DejaVu Sans", 10), ("DejaVu Sans", 9), ("DejaVu Sans", 14, "bold")
+
 
 class App(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
         self.title("BPBV — оновлення новин")
-        self.minsize(520, 640)
-        self.geometry("620x720")
+        self.minsize(560, 700)
+        self.geometry("640x760")
+        self._font_body, self._font_small, self._font_title = _font_tuple_platform()
 
         self.token_var = tk_string(self)
         self.section_var = tk_string(self, value="news")
@@ -44,9 +58,45 @@ class App(tk.Tk):
         self.image_paths: list[Path] = []
         self.status_var = tk_string(self, value="Готово.")
 
+        self._apply_style()
         self._build()
         self._bind_clipboard()
         self._bind_context_menu()
+
+    def _apply_style(self) -> None:
+        try:
+            self.tk.call("tk", "scaling", 1.0)
+        except tk.TclError:
+            pass
+        style = ttk.Style(self)
+        for theme in ("clam", "vista", "xpnative", "default"):
+            try:
+                style.theme_use(theme)
+                break
+            except tk.TclError:
+                continue
+        style.configure(".", background=_BG_WINDOW, font=self._font_body)
+        style.configure("TFrame", background=_BG_WINDOW)
+        style.configure("TLabel", background=_BG_WINDOW, font=self._font_body)
+        style.configure("TLabelframe", background=_BG_WINDOW, padding=10, font=self._font_body)
+        style.configure("TLabelframe.Label", background=_BG_WINDOW, foreground=_BURGUNDY, font=self._font_body)
+        style.configure("TButton", font=self._font_body, padding=(12, 6))
+        style.configure(
+            "Accent.TButton",
+            font=self._font_body,
+            padding=(16, 10),
+            foreground="#ffffff",
+            background=_BURGUNDY,
+        )
+        style.map(
+            "Accent.TButton",
+            background=[("active", "#721947"), ("disabled", "#a08090")],
+            foreground=[("disabled", "#e8e0e4")],
+        )
+        try:
+            self.configure(background=_BG_WINDOW)
+        except tk.TclError:
+            pass
 
     def _bind_clipboard(self) -> None:
         """Enable Ctrl+V / Ctrl+C / Ctrl+A / Ctrl+X on Windows (Tkinter ignores them by default)."""
@@ -245,29 +295,60 @@ class App(tk.Tk):
             w.tag_add("sel", "1.0", "end")
 
     def _build(self) -> None:
-        pad = {"padx": 12, "pady": 6}
+        gap = {"padx": 0, "pady": (0, 14)}
 
-        f = ttk.Frame(self)
-        f.pack(fill="both", expand=True)
+        outer = ttk.Frame(self, padding=18)
+        outer.pack(fill="both", expand=True)
 
-        ttk.Label(f, text="Токен GitHub (classic PAT з правом repo)").grid(row=0, column=0, sticky="w", **pad)
-        token_entry = ttk.Entry(f, textvariable=self.token_var, width=52, show="•")
-        token_entry.grid(row=1, column=0, sticky="ew", **pad)
+        # -------- Header --------
+        head = ttk.Frame(outer)
+        head.grid(row=0, column=0, sticky="ew", **gap)
+        ttk.Label(
+            head,
+            text="Публікація новини на сайт кафедри БПБВ",
+            font=self._font_title,
+            foreground=_BURGUNDY,
+        ).grid(row=0, column=0, sticky="w")
+        ttk.Label(
+            head,
+            text="Зміни відправляються у репозиторій lianeaster/bpbv (гілка main).",
+            font=self._font_small,
+            foreground="#5c4a52",
+        ).grid(row=1, column=0, sticky="w", pady=(4, 0))
 
-        ttk.Label(f, text="Секція для оновлення").grid(row=2, column=0, sticky="w", **pad)
+        row = 1
+
+        # -------- GitHub --------
+        lf_token = ttk.Labelframe(outer, text="Доступ GitHub", padding=10)
+        lf_token.grid(row=row, column=0, sticky="ew", **gap)
+        row += 1
+        ttk.Label(
+            lf_token,
+            text="Personal access token (classic) з правом repo",
+            font=self._font_small,
+        ).grid(row=0, column=0, sticky="w", pady=(0, 6))
+        token_entry = ttk.Entry(lf_token, textvariable=self.token_var, width=58, show="•")
+        token_entry.grid(row=1, column=0, sticky="ew")
+        lf_token.columnconfigure(0, weight=1)
+
+        # -------- Section & date --------
+        lf_meta = ttk.Labelframe(outer, text="Секція та дата", padding=10)
+        lf_meta.grid(row=row, column=0, sticky="ew", **gap)
+        row += 1
+        ttk.Label(lf_meta, text="Секція для оновлення").grid(row=0, column=0, sticky="w", pady=(0, 4))
         section = ttk.Combobox(
-            f,
+            lf_meta,
             textvariable=self.section_var,
             values=["Новини"],
             state="readonly",
-            width=48,
+            width=54,
         )
-        section.grid(row=3, column=0, sticky="ew", **pad)
+        section.grid(row=1, column=0, sticky="ew", pady=(0, 10))
         section.current(0)
 
-        ttk.Label(f, text="Дата (день / місяць / рік)").grid(row=4, column=0, sticky="w", **pad)
-        date_row = ttk.Frame(f)
-        date_row.grid(row=5, column=0, sticky="ew", **pad)
+        ttk.Label(lf_meta, text="Дата публікації (день · місяць · рік)").grid(row=2, column=0, sticky="w", pady=(0, 4))
+        date_row = ttk.Frame(lf_meta)
+        date_row.grid(row=3, column=0, sticky="w")
         for i, (lbl, var, w) in enumerate(
             [
                 ("День", self.day_var, 6),
@@ -276,31 +357,76 @@ class App(tk.Tk):
             ]
         ):
             ttk.Label(date_row, text=lbl).grid(row=0, column=i * 2, padx=(0, 4))
-            ttk.Entry(date_row, textvariable=var, width=w).grid(row=0, column=i * 2 + 1, padx=(0, 14))
+            ttk.Entry(date_row, textvariable=var, width=w).grid(row=0, column=i * 2 + 1, padx=(0, 16))
+        lf_meta.columnconfigure(0, weight=1)
 
+        # -------- Text --------
+        lf_text = ttk.Labelframe(outer, text="Текст новини", padding=10)
+        lf_text.grid(row=row, column=0, sticky="nsew", **gap)
+        row += 1
         ttk.Label(
-            f,
-            text="Введіть текст (перший рядок — заголовок картки; далі текст анонсу та повного повідомлення)",
-        ).grid(row=6, column=0, sticky="w", **pad)
-        text_outer = tk.Frame(f)
-        text_outer.grid(row=7, column=0, sticky="nsew", **pad)
-        self.body_txt = tk.Text(text_outer, height=14, wrap="word", font=("Helvetica Neue", 13))
+            lf_text,
+            text="Перший рядок — заголовок на картці. Далі 3 перші рядки — видимий анонс; решта — лише під «Детальніше» на сайті.",
+            font=self._font_small,
+            wraplength=580,
+        ).grid(row=0, column=0, sticky="w", pady=(0, 8))
+        text_outer = tk.Frame(lf_text, bg=_BG_WINDOW)
+        text_outer.grid(row=1, column=0, sticky="nsew")
+        self.body_txt = tk.Text(
+            text_outer,
+            height=14,
+            wrap="word",
+            font=self._font_body,
+            relief="flat",
+            highlightthickness=1,
+            highlightbackground="#d9ced4",
+            padx=8,
+            pady=8,
+            bg="#ffffff",
+            fg="#261a22",
+            insertbackground=_BURGUNDY,
+        )
         ys = ttk.Scrollbar(text_outer, orient="vertical", command=self.body_txt.yview)
         self.body_txt.configure(yscrollcommand=ys.set)
         self.body_txt.pack(side="left", fill="both", expand=True)
         ys.pack(side="right", fill="y")
+        lf_text.columnconfigure(0, weight=1)
+        lf_text.rowconfigure(1, weight=1)
 
-        img_row = ttk.Frame(f)
-        img_row.grid(row=8, column=0, sticky="ew", **pad)
-        ttk.Button(img_row, text="Додати зображення…", command=self._pick_images).pack(side="left")
-        self.img_list = tk.Listbox(f, height=4, activestyle="dotbox")
-        self.img_list.grid(row=9, column=0, sticky="ew", **pad)
+        # -------- Images --------
+        lf_img = ttk.Labelframe(outer, text="Зображення (JPEG, PNG, WebP…)", padding=10)
+        lf_img.grid(row=row, column=0, sticky="ew", **gap)
+        row += 1
+        img_row = ttk.Frame(lf_img)
+        img_row.grid(row=0, column=0, sticky="w", pady=(0, 8))
+        ttk.Button(img_row, text="Додати файли…", command=self._pick_images).pack(side="left")
+        self.img_list = tk.Listbox(
+            lf_img,
+            height=4,
+            activestyle="dotbox",
+            font=self._font_small,
+            bg="#ffffff",
+            fg="#261a22",
+            selectbackground=_BURGUNDY,
+            selectforeground="#ffffff",
+            relief="flat",
+            highlightthickness=1,
+            highlightbackground="#d9ced4",
+        )
+        self.img_list.grid(row=1, column=0, sticky="ew")
+        lf_img.columnconfigure(0, weight=1)
 
-        ttk.Button(f, text="Відправити", command=self._submit).grid(row=10, column=0, sticky="ew", **pad)
-        ttk.Label(f, textvariable=self.status_var, foreground="#555").grid(row=11, column=0, sticky="w", **pad)
+        # -------- Actions --------
+        act = ttk.Frame(outer)
+        act.grid(row=row, column=0, sticky="ew", pady=(4, 0))
+        ttk.Button(act, text="Відправити на GitHub", command=self._submit, style="Accent.TButton").pack(
+            fill="x", pady=(0, 8)
+        )
+        ttk.Label(act, textvariable=self.status_var, foreground="#5c4a52", font=self._font_small).pack(anchor="w")
 
-        f.columnconfigure(0, weight=1)
-        f.rowconfigure(7, weight=1)
+        outer.columnconfigure(0, weight=1)
+        # lf_text is on row 3 (after head=0, token=1, meta=2)
+        outer.rowconfigure(3, weight=1)
 
     def _pick_images(self) -> None:
         files = filedialog.askopenfilenames(
