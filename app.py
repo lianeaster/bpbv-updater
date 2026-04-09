@@ -42,6 +42,15 @@ def _font_tuple_platform() -> tuple[tuple[str, ...], tuple[str, ...], tuple[str,
     return ("DejaVu Sans", 10), ("DejaVu Sans", 9), ("DejaVu Sans", 14, "bold")
 
 
+def _load_token() -> str:
+    """Load GitHub token from bundled or local config.py. Returns '' if unavailable."""
+    try:
+        from config import DEFAULT_TOKEN  # type: ignore[import-not-found]
+        return DEFAULT_TOKEN.strip() if DEFAULT_TOKEN else ""
+    except Exception:
+        return ""
+
+
 class App(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
@@ -50,7 +59,7 @@ class App(tk.Tk):
         self.geometry("640x760")
         self._font_body, self._font_small, self._font_title = _font_tuple_platform()
 
-        self.token_var = tk_string(self)
+        self._token = _load_token()
         self.section_var = tk_string(self, value="news")
         self.day_var = tk_string(self, value=str(datetime.now().day))
         self.month_var = tk_string(self, value=str(datetime.now().month))
@@ -64,22 +73,22 @@ class App(tk.Tk):
         self._bind_context_menu()
 
     def _apply_style(self) -> None:
-        try:
-            self.tk.call("tk", "scaling", 1.0)
-        except tk.TclError:
-            pass
         style = ttk.Style(self)
-        for theme in ("clam", "vista", "xpnative", "default"):
+        if sys.platform == "win32":
+            for t in ("vista", "xpnative", "clam", "default"):
+                try:
+                    style.theme_use(t)
+                    break
+                except tk.TclError:
+                    continue
+        else:
             try:
-                style.theme_use(theme)
-                break
+                style.theme_use("default")
             except tk.TclError:
-                continue
-        style.configure(".", background=_BG_WINDOW, font=self._font_body)
-        style.configure("TFrame", background=_BG_WINDOW)
-        style.configure("TLabel", background=_BG_WINDOW, font=self._font_body)
-        style.configure("TLabelframe", background=_BG_WINDOW, padding=10, font=self._font_body)
-        style.configure("TLabelframe.Label", background=_BG_WINDOW, foreground=_BURGUNDY, font=self._font_body)
+                pass
+        style.configure("TLabel", font=self._font_body)
+        style.configure("TLabelframe", padding=10)
+        style.configure("TLabelframe.Label", foreground=_BURGUNDY, font=self._font_body)
         style.configure("TButton", font=self._font_body, padding=(12, 6))
         style.configure(
             "Accent.TButton",
@@ -93,10 +102,6 @@ class App(tk.Tk):
             background=[("active", "#721947"), ("disabled", "#a08090")],
             foreground=[("disabled", "#e8e0e4")],
         )
-        try:
-            self.configure(background=_BG_WINDOW)
-        except tk.TclError:
-            pass
 
     def _bind_clipboard(self) -> None:
         """Enable Ctrl+V / Ctrl+C / Ctrl+A / Ctrl+X on Windows (Tkinter ignores them by default)."""
@@ -318,19 +323,6 @@ class App(tk.Tk):
 
         row = 1
 
-        # -------- GitHub --------
-        lf_token = ttk.Labelframe(outer, text="Доступ GitHub", padding=10)
-        lf_token.grid(row=row, column=0, sticky="ew", **gap)
-        row += 1
-        ttk.Label(
-            lf_token,
-            text="Personal access token (classic) з правом repo",
-            font=self._font_small,
-        ).grid(row=0, column=0, sticky="w", pady=(0, 6))
-        token_entry = ttk.Entry(lf_token, textvariable=self.token_var, width=58, show="•")
-        token_entry.grid(row=1, column=0, sticky="ew")
-        lf_token.columnconfigure(0, weight=1)
-
         # -------- Section & date --------
         lf_meta = ttk.Labelframe(outer, text="Секція та дата", padding=10)
         lf_meta.grid(row=row, column=0, sticky="ew", **gap)
@@ -370,26 +362,24 @@ class App(tk.Tk):
             font=self._font_small,
             wraplength=580,
         ).grid(row=0, column=0, sticky="w", pady=(0, 8))
-        text_outer = tk.Frame(lf_text, bg=_BG_WINDOW)
+        text_outer = tk.Frame(lf_text)
         text_outer.grid(row=1, column=0, sticky="nsew")
-        self.body_txt = tk.Text(
-            text_outer,
-            height=14,
-            wrap="word",
+        self.body_txt = tk.Text(text_outer, height=14, wrap="word")
+        ys = ttk.Scrollbar(text_outer, orient="vertical", command=self.body_txt.yview)
+        self.body_txt.configure(yscrollcommand=ys.set)
+        self.body_txt.pack(side="left", fill="both", expand=True)
+        ys.pack(side="right", fill="y")
+        self.body_txt.configure(
             font=self._font_body,
+            bg="#ffffff",
+            fg="#261a22",
+            insertbackground=_BURGUNDY,
             relief="flat",
             highlightthickness=1,
             highlightbackground="#d9ced4",
             padx=8,
             pady=8,
-            bg="#ffffff",
-            fg="#261a22",
-            insertbackground=_BURGUNDY,
         )
-        ys = ttk.Scrollbar(text_outer, orient="vertical", command=self.body_txt.yview)
-        self.body_txt.configure(yscrollcommand=ys.set)
-        self.body_txt.pack(side="left", fill="both", expand=True)
-        ys.pack(side="right", fill="y")
         lf_text.columnconfigure(0, weight=1)
         lf_text.rowconfigure(1, weight=1)
 
@@ -425,8 +415,7 @@ class App(tk.Tk):
         ttk.Label(act, textvariable=self.status_var, foreground="#5c4a52", font=self._font_small).pack(anchor="w")
 
         outer.columnconfigure(0, weight=1)
-        # lf_text is on row 3 (after head=0, token=1, meta=2)
-        outer.rowconfigure(3, weight=1)
+        outer.rowconfigure(2, weight=1)
 
     def _pick_images(self) -> None:
         files = filedialog.askopenfilenames(
@@ -455,9 +444,14 @@ class App(tk.Tk):
         return f"{d:02d}.{m:02d}.{y}"
 
     def _submit(self) -> None:
-        token = self.token_var.get().strip()
+        token = self._token
         if not token:
-            messagebox.showerror("Помилка", "Потрібен токен GitHub.")
+            messagebox.showerror(
+                "Помилка",
+                "Токен GitHub не знайдено.\n\n"
+                "Цю збірку програми створено без вбудованого токена.\n"
+                "Зверніться до адміністратора або завантажте актуальну версію.",
+            )
             return
 
         try:
