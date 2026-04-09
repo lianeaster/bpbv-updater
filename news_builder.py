@@ -163,14 +163,28 @@ def translation_keys_block(
     )
 
 
-def inject_translation_block(translations_js: str, block: str) -> str:
-    """Insert block before each `    'news.readMore':` line (once per language)."""
+def inject_translation_blocks(translations_js: str, blocks: dict[str, str]) -> str:
+    """Insert per-language translation blocks before each ``'news.readMore':`` line.
+
+    *blocks* maps a language code (``'uk'``, ``'en'``, ``'de'``, ``'fr'``) to the
+    text block to insert.  Falls back to the ``'uk'`` block when a language key
+    is missing from *blocks*.
+    """
     lines = translations_js.splitlines(keepends=True)
     out: list[str] = []
+    current_lang = "uk"
+    lang_re = re.compile(r"^\s*(uk|en|de|fr)\s*:\s*\{")
+
     for line in lines:
+        m = lang_re.match(line)
+        if m:
+            current_lang = m.group(1)
+
         stripped = line.lstrip()
         if stripped.startswith("'news.readMore':"):
-            out.append(block)
+            block = blocks.get(current_lang) or blocks.get("uk", "")
+            if block:
+                out.append(block)
         out.append(line)
     return "".join(out)
 

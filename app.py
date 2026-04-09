@@ -17,12 +17,13 @@ from news_builder import (
     build_article_html,
     build_body_html,
     inject_article_into_index,
-    inject_translation_block,
+    inject_translation_blocks,
     next_card_index,
     sanitize_image_filename,
     split_title_excerpt_detail,
     translation_keys_block,
 )
+from translator import translate
 
 OWNER = "lianeaster"
 REPO = "bpbv"
@@ -516,7 +517,23 @@ class App(tk.Tk):
             body_images = rel_paths[1:]
         body_html = build_body_html(detail_text, body_images)
         article_html = build_article_html(card_id, date_display, title, excerpt, body_html, hero)
-        block = translation_keys_block(card_id, date_display, title, excerpt, body_html)
+
+        # Build Ukrainian translation block
+        blocks: dict[str, str] = {
+            "uk": translation_keys_block(card_id, date_display, title, excerpt, body_html),
+        }
+
+        # Translate to EN / DE / FR
+        lang_labels = [("en", "англійську"), ("de", "німецьку"), ("fr", "французьку")]
+        for lang, label in lang_labels:
+            self.after(0, lambda l=label: self.status_var.set(f"Переклад на {l}…"))
+            t_title = translate(title, lang)
+            t_excerpt = translate(excerpt, lang) if excerpt else ""
+            t_detail = translate(detail_text, lang) if detail_text else ""
+            t_body_html = build_body_html(t_detail, body_images)
+            blocks[lang] = translation_keys_block(card_id, date_display, t_title, t_excerpt, t_body_html)
+
+        self.after(0, lambda: self.status_var.set("Оновлення index.html…"))
 
         # 2. Read index.html with fresh SHA, modify, write immediately
         index_html, index_sha = github_api.get_file_text(token, OWNER, REPO, "index.html", BRANCH)
@@ -528,9 +545,11 @@ class App(tk.Tk):
             new_index, f"news: add card {card_id} — {title[:60]}", index_sha,
         )
 
+        self.after(0, lambda: self.status_var.set("Оновлення translations.js…"))
+
         # 3. Read translations.js with fresh SHA, modify, write immediately
         translations_js, trans_sha = github_api.get_file_text(token, OWNER, REPO, "translations.js", BRANCH)
-        new_trans = inject_translation_block(translations_js, block)
+        new_trans = inject_translation_blocks(translations_js, blocks)
         if new_trans == translations_js:
             raise ValueError("translations.js не змінено — перевірте файл.")
         github_api.put_file_text(

@@ -51,15 +51,15 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $extra = @()
-          if (Test-Path config.py) { $extra = @("--hidden-import=config", "--add-data=config.py;.") }
+          $extra = @("--hidden-import=translator", "--hidden-import=deep_translator")
+          if (Test-Path config.py) { $extra += @("--hidden-import=config", "--add-data=config.py;.") }
           pyinstaller --onefile --windowed --name bpbv-updater -y @extra app.py
 
       - name: Build with PyInstaller (macOS)
         if: runner.os == 'macOS'
         run: |
-          EXTRA=""
-          if [ -f config.py ]; then EXTRA="--hidden-import=config --add-data=config.py:."; fi
+          EXTRA="--hidden-import=translator --hidden-import=deep_translator"
+          if [ -f config.py ]; then EXTRA="$EXTRA --hidden-import=config --add-data=config.py:."; fi
           pyinstaller --onedir --windowed --name bpbv-updater -y $EXTRA app.py
 
       - name: Zip macOS .app bundle
