@@ -189,6 +189,17 @@ def inject_translation_blocks(translations_js: str, blocks: dict[str, str]) -> s
     return "".join(out)
 
 
+def bust_translations_cache(index_html: str) -> str:
+    """Update ``translations.js`` script tag with a fresh cache-busting query string."""
+    import time
+    version = str(int(time.time()))
+    return re.sub(
+        r'src="translations\.js(\?v=\d+)?"',
+        f'src="translations.js?v={version}"',
+        index_html,
+    )
+
+
 def sanitize_image_filename(original: Path, index: int, stamp: str) -> str:
     stem = re.sub(r"[^a-zA-Z0-9_-]+", "-", original.stem).strip("-").lower() or "photo"
     ext = original.suffix.lower()

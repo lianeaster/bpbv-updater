@@ -16,6 +16,7 @@ import github_api
 from news_builder import (
     build_article_html,
     build_body_html,
+    bust_translations_cache,
     inject_article_into_index,
     inject_translation_blocks,
     next_card_index,
@@ -410,9 +411,8 @@ class App(tk.Tk):
         # -------- Actions --------
         act = ttk.Frame(outer)
         act.grid(row=row, column=0, sticky="ew", pady=(4, 0))
-        ttk.Button(act, text="Відправити на GitHub", command=self._submit, style="Accent.TButton").pack(
-            fill="x", pady=(0, 8)
-        )
+        self._submit_btn = ttk.Button(act, text="Відправити на GitHub", command=self._submit, style="Accent.TButton")
+        self._submit_btn.pack(fill="x", pady=(0, 8))
         ttk.Label(act, textvariable=self.status_var, foreground="#5c4a52", font=self._font_small).pack(anchor="w")
 
         outer.columnconfigure(0, weight=1)
@@ -466,6 +466,7 @@ class App(tk.Tk):
             messagebox.showerror("Помилка", "Введіть текст новини.")
             return
 
+        self._submit_btn.configure(state="disabled")
         self.status_var.set("Відправка…")
         thread = threading.Thread(
             target=self._worker,
@@ -473,6 +474,9 @@ class App(tk.Tk):
             daemon=True,
         )
         thread.start()
+
+    def _re_enable_button(self) -> None:
+        self._submit_btn.configure(state="normal")
 
     def _worker(self, token: str, date_display: str, raw_text: str) -> None:
         try:
@@ -487,6 +491,8 @@ class App(tk.Tk):
             tb = traceback.format_exc()
             self.after(0, lambda: self.status_var.set("Помилка."))
             self.after(0, lambda: messagebox.showerror("Помилка", tb))
+        finally:
+            self.after(0, self._re_enable_button)
 
     def _do_publish(self, token: str, date_display: str, raw_text: str) -> None:
         # Pre-read translations.js to determine next card index
@@ -538,6 +544,7 @@ class App(tk.Tk):
         # 2. Read index.html with fresh SHA, modify, write immediately
         index_html, index_sha = github_api.get_file_text(token, OWNER, REPO, "index.html", BRANCH)
         new_index = inject_article_into_index(index_html, article_html)
+        new_index = bust_translations_cache(new_index)
         if new_index == index_html:
             raise ValueError("index.html не змінено — перевірте розмітку.")
         github_api.put_file_text(
